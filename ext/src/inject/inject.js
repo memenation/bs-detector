@@ -351,6 +351,7 @@ chrome.extension.sendMessage({}, function(response) {
 			'veteranstoday.com',
 			'vonpress.com',
 			'votocrat.com',
+            'vox.com',
 			'wakingupwisconsin.com',
 			'waterfordwhispersnews.com',
 			'weeklyworldnews.com',
